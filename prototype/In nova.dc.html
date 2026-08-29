@@ -106,7 +106,7 @@ a{color:var(--color-accent);text-decoration:none}a:hover{color:var(--color-accen
             </div>
           </div>
 
-          <div style="display:flex;align-items:center;justify-content:center;gap:3px;height:78px;opacity:{{ waveOpacity }}">
+          <div ref="{{ waveRef }}" style="display:flex;align-items:center;justify-content:center;gap:3px;height:78px;opacity:{{ waveOpacity }};transition:transform .08s linear">
             <div style="width:3px;height:22px;border-radius:2px;background:var(--color-accent-700);animation:wv .9s ease-in-out -.05s infinite alternate"></div>
             <div style="width:3px;height:38px;border-radius:2px;background:var(--color-accent-600);animation:wv 1.1s ease-in-out -.35s infinite alternate"></div>
             <div style="width:3px;height:54px;border-radius:2px;background:var(--color-accent-500);animation:wv .75s ease-in-out -.6s infinite alternate"></div>
@@ -133,10 +133,13 @@ a{color:var(--color-accent);text-decoration:none}a:hover{color:var(--color-accen
           </div>
 
           <div style="flex:1;min-height:0;padding:var(--space-4);border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:var(--space-3);overflow:hidden">
-            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 45%, transparent)">Transcripción en vivo</div>
-            <div style="flex:1;overflow-y:auto;font-size:14px;line-height:1.65;text-wrap:pretty;color:color-mix(in srgb, var(--color-text) 88%, transparent)">{{ transcript }} <span style="color:color-mix(in srgb, var(--color-text) 45%, transparent)">{{ interim }}</span><span style="color:var(--color-accent)">{{ caret }}</span></div>
-            <sc-if value="{{ transcriptEmpty }}" hint-placeholder-val="{{ true }}">
-              <div style="font-size:13px;line-height:1.5;color:color-mix(in srgb, var(--color-text) 40%, transparent)">{{ transcriptHint }}</div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3)">
+              <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 45%, transparent)">{{ transcriptLabel }}</div>
+              <div style="font-size:10px;color:var(--color-accent)">{{ caret }}</div>
+            </div>
+            <textarea class="input" value="{{ transcript }}" onChange="{{ onTranscript }}" placeholder="{{ transcriptHint }}" style="flex:1;min-height:0;background:transparent;border:0;padding:0;font-size:14px;line-height:1.65;resize:none;color:color-mix(in srgb, var(--color-text) 90%, transparent)"></textarea>
+            <sc-if value="{{ hasInterim }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:14px;line-height:1.5;color:color-mix(in srgb, var(--color-text) 42%, transparent);text-wrap:pretty">{{ interim }}</div>
             </sc-if>
           </div>
 
@@ -631,7 +634,7 @@ const SEED = [
 class Component extends DCLogic {
   state = {
     screen: this.props.startScreen || "inicio",
-    recording: false, elapsed: 0, heard: "", interim: "", micError: "",
+    recording: false, elapsed: 0, heard: "", interim: "", micError: "", dictationOff: false,
     typed: "", kb: false,
     procStep: 0,
     projects: SEED, activeId: null,
@@ -649,7 +652,49 @@ class Component extends DCLogic {
 
   stopMic() {
     this._wantRec = false;
-    if (this._sr) { try { this._sr.onend = null; this._sr.stop(); } catch (e) {} this._sr = null; }
+    if (this._sr) { try { this._sr.onend = null; this._sr.onerror = null; this._sr.stop(); } catch (e) {} this._sr = null; }
+    this.stopAudio();
+  }
+
+  stopAudio() {
+    if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+    if (this._actx) { try { this._actx.close(); } catch (e) {} this._actx = null; }
+    if (this._stream) { try { this._stream.getTracks().forEach(t => t.stop()); } catch (e) {} this._stream = null; }
+    const el = this.waveRef && this.waveRef.current;
+    if (el) el.style.transform = "";
+  }
+
+  // El micrófono se abre siempre: da el permiso real y mueve la onda con la voz,
+  // aunque el servicio de dictado del navegador no esté disponible.
+  async startAudio() {
+    if (this._stream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { this._audioErr = "unsupported"; return false; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { this._audioErr = (e && e.name) || "error"; return false; }
+    this._audioErr = null;
+    this._stream = stream;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      this._actx = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const loop = () => {
+        if (!this._actx) return;
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        const lvl = Math.min(1, sum / data.length / 62);
+        const el = this.waveRef.current;
+        if (el) el.style.transform = "scaleY(" + (0.22 + lvl * 0.95).toFixed(3) + ")";
+        this._raf = requestAnimationFrame(loop);
+      };
+      loop();
+    } catch (e) {}
+    return true;
   }
 
   active() {
@@ -694,20 +739,33 @@ class Component extends DCLogic {
 
   go = (screen) => { this.stopTimers(); this.setState({ screen, kb: false, recording: false }); };
 
-  resetCapture = () => { this.stopTimers(); this.setState({ recording: false, elapsed: 0, heard: "", interim: "", micError: "" }); };
+  resetCapture = () => { this._srRetries = 0; this.stopTimers(); this.setState({ recording: false, elapsed: 0, heard: "", interim: "", micError: "", dictationOff: false }); };
 
-  startRec = () => {
+  startRec = async () => {
+    if (this._starting || this.state.recording) return;
+    this._starting = true;
+    const gotAudio = await this.startAudio();
+    this._starting = false;
+    // Sin acceso al audio la sesión sigue: el dictado del navegador puede
+    // funcionar por su cuenta y, si no, queda el modo escritura.
+    const audioMsg = gotAudio ? "" :
+      this._audioErr === "NotAllowedError" || this._audioErr === "SecurityError"
+        ? "El micrófono está bloqueado. Habilítalo en el candado de la barra de direcciones y toca de nuevo."
+        : this._audioErr === "NotFoundError"
+        ? "No se detectó ningún micrófono en este dispositivo."
+        : "Este navegador no dio acceso al micrófono. Puedes escribir la idea abajo.";
+    this.setState({ recording: true, micError: audioMsg, dictationOff: false });
+    clearInterval(this._tick);
+    this._tick = setInterval(() => this.setState(s => (s.recording ? { elapsed: s.elapsed + 0.1 } : null)), 100);
+    this.startDictation();
+  };
+
+  startDictation = () => {
     if (this._sr) return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      this.setState({ micError: "Este navegador no permite dictado. Escribe la idea en su lugar.", recording: false });
-      return;
-    }
+    if (!SR) { this.fallbackToAudio("Este navegador no transcribe voz."); return; }
     let sr;
-    try { sr = new SR(); } catch (e) {
-      this.setState({ micError: "No se pudo abrir el micrófono.", recording: false });
-      return;
-    }
+    try { sr = new SR(); } catch (e) { this.fallbackToAudio("Este navegador no transcribe voz."); return; }
     sr.lang = "es-ES";
     sr.continuous = true;
     sr.interimResults = true;
@@ -727,36 +785,47 @@ class Component extends DCLogic {
 
     sr.onerror = (ev) => {
       if (ev.error === "no-speech" || ev.error === "aborted") return;
-      const msg = ev.error === "not-allowed" || ev.error === "service-not-allowed"
-        ? "Falta permiso del micrófono. Habilítalo en el navegador y vuelve a intentar."
-        : ev.error === "network"
-        ? "El dictado necesita conexión. Escribe la idea o reintenta con señal."
-        : "El dictado se interrumpió. Toca el micrófono para seguir.";
-      this.stopMic();
-      clearInterval(this._tick); this._tick = null;
-      this.setState({ recording: false, interim: "", micError: msg });
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        this.fallbackToAudio("El navegador bloqueó el dictado. La grabación sigue: escribe o corrige el texto abajo.");
+        return;
+      }
+      // "network" suele significar que el servicio de dictado del navegador no
+      // responde (o no existe en este contexto), no que falte internet.
+      this._srRetries = (this._srRetries || 0) + 1;
+      if (this._srRetries <= 2) {
+        this._dropSr();
+        setTimeout(() => { if (this._wantRec) this.startDictation(); }, 500);
+        return;
+      }
+      this.fallbackToAudio("El dictado automático no está disponible aquí. Sigue grabando y escribe o corrige el texto abajo.");
     };
 
     // Los navegadores cortan el reconocimiento cada pocos segundos: se reanuda
     // mientras el usuario no haya puesto pausa.
     sr.onend = () => {
-      if (!this._wantRec) return;
+      if (!this._wantRec || this._sr !== sr) return;
       try { sr.start(); } catch (e) {}
     };
 
     this._sr = sr;
     this._wantRec = true;
-    try { sr.start(); } catch (e) {
-      this.stopMic();
-      this.setState({ micError: "No se pudo iniciar el dictado.", recording: false });
-      return;
-    }
-    this.setState({ recording: true, micError: "" });
-    clearInterval(this._tick);
-    this._tick = setInterval(() => this.setState(s => (s.recording ? { elapsed: s.elapsed + 0.1 } : null)), 100);
+    try { sr.start(); } catch (e) { this.fallbackToAudio("El dictado automático no pudo iniciar. Sigue grabando y escribe el texto abajo."); }
   };
 
+  _dropSr() {
+    if (this._sr) { try { this._sr.onend = null; this._sr.onerror = null; this._sr.abort(); } catch (e) {} this._sr = null; }
+  }
+
+  // Sin transcripción, pero con el micrófono abierto y la onda en vivo.
+  fallbackToAudio(msg) {
+    this._dropSr();
+    this.setState(s => ({ micError: s.micError || msg, dictationOff: true }));
+  }
+
+  waveRef = React.createRef();
+
   pauseRec = () => {
+    this._srRetries = 0;
     this.stopMic();
     clearInterval(this._tick); this._tick = null;
     this.setState(s => ({ recording: false, heard: s.interim ? (s.heard ? s.heard + " " : "") + s.interim : s.heard, interim: "" }));
@@ -797,7 +866,7 @@ class Component extends DCLogic {
       isProc: s.screen === "procesando", isProject: s.screen === "proyecto", isSettings: s.screen === "ajustes",
       kb: s.kb, openKb: () => this.setState({ kb: true }), closeKb: () => this.setState({ kb: false }),
       goHome: () => this.go("inicio"), goVoice: () => this.go("voz"), goWrite: () => this.go("escribir"),
-      goVoiceRec: () => { this.stopTimers(); this.setState({ screen: "voz", kb: false, recording: false, elapsed: 0, heard: "", interim: "", micError: "" }); },
+      goVoiceRec: () => { this._srRetries = 0; this.stopTimers(); this.setState({ screen: "voz", kb: false, recording: false, elapsed: 0, heard: "", interim: "", micError: "", dictationOff: false }); },
       resetCapture: this.resetCapture,
       hasVoice: s.heard.trim().length > 0,
 
@@ -842,15 +911,20 @@ class Component extends DCLogic {
       })),
 
       timer: mm + ":" + ss,
-      recLabel: s.recording ? "Grabando" : s.heard.trim() ? "En pausa · toca para seguir" : "Toca el micrófono para dictar",
+      waveRef: this.waveRef,
+      recLabel: s.recording ? (s.dictationOff ? "Grabando · sin transcripción" : "Grabando") : s.heard.trim() ? "En pausa · toca para seguir" : "Toca el micrófono para dictar",
       recIcon: s.recording ? "ph-pause" : "ph-microphone",
       waveOpacity: s.recording ? 1 : 0.26,
       haloOpacity: s.recording ? 1 : 0.3,
       caret: s.recording ? " ▌" : "",
       transcript: s.heard,
+      onTranscript: (e) => this.setState({ heard: e.target.value }),
       interim: s.interim,
-      transcriptEmpty: !s.heard && !s.interim,
-      transcriptHint: s.recording ? "Escuchando…" : "La transcripción aparecerá aquí mientras hablas.",
+      hasInterim: !!s.interim,
+      transcriptLabel: s.dictationOff ? "Texto de la idea" : "Transcripción en vivo",
+      transcriptHint: s.dictationOff
+        ? "Escribe aquí lo que estás diciendo"
+        : s.recording ? "Habla: el texto aparece aquí (puedes corregirlo)" : "La transcripción aparecerá aquí mientras hablas",
       micError: s.micError,
       hasMicError: !!s.micError,
       toggleRec: this.toggleRec,

@@ -46,7 +46,9 @@ Pantallas incluidas: inicio (lista de ideas), captura por voz con transcripción
 
 Ver `docs/HANDOFF.md`. Stack recomendado: Kotlin + Jetpack Compose (Android nativo) o React Native.
 
-El dictado usa la Web Speech API del navegador (Chrome en Android la soporta; requiere permiso de micrófono y conexión). Pendientes funcionales:
+El dictado usa la Web Speech API del navegador (Chrome en Android la soporta). Requiere **HTTPS** — funciona en GitHub Pages, no abriendo el archivo local — y permiso de micrófono. Si el servicio de dictado no responde, la app sigue grabando y el panel queda editable para escribir o corregir el texto.
+
+Pendientes funcionales:
 - llamada a un modelo de lenguaje para el análisis interno;
 - persistencia de proyectos, carpetas y notas;
 - portapapeles y lectura de archivos JSON en el dispositivo.
