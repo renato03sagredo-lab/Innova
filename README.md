@@ -7,14 +7,26 @@ Este repositorio contiene, por ahora, **el diseño y el prototipo navegable**. L
 ## Qué hay aquí
 
 ```
+index.html               El prototipo listo para abrir o publicar (un solo archivo, sin dependencias)
 docs/HANDOFF.md          Especificación de diseño completa (pantallas, tokens, estados, datos)
 docs/PROMPT_SCHEMA.md    El prompt que la app genera y el esquema JSON que espera de vuelta
-prototype/               Prototipo navegable en HTML (6 pantallas, todas las interacciones)
+prototype/               El prototipo en archivos separados (fuente editable)
 ```
 
 ## Ver el prototipo
 
-Clona el repo y abre `prototype/In nova.dc.html` en un navegador de escritorio. No requiere instalación ni servidor.
+**Opción rápida:** descarga `index.html` y ábrelo en cualquier navegador. Es autocontenido: no necesita servidor, internet ni instalación.
+
+**Publicarlo con GitHub Pages** (queda una URL que puedes abrir desde el celular):
+
+1. En el repo, ve a *Settings → Pages*.
+2. En *Source* elige `Deploy from a branch`, rama `main`, carpeta `/ (root)`. Guarda.
+3. En un par de minutos queda disponible en `https://renato03sagredo-lab.github.io/Innovaia/`.
+4. Ábrela en Chrome del celular y usa *Añadir a pantalla de inicio* para que se vea como una app.
+
+Nota: abrir un `.html` desde la vista de código de GitHub muestra el código, no la app. Para verla hay que usar Pages o descargar el archivo.
+
+**Fuente editable:** `prototype/In nova.dc.html` (requiere los archivos vecinos `support.js`, `android-frame.jsx` y `_ds/`).
 
 Pantallas incluidas: inicio (lista de ideas), captura por voz con transcripción en vivo, captura escrita, procesamiento, ficha del proyecto (nombre editable, panel de métricas, secciones de análisis, cronograma, carpetas, preguntas abiertas), generador de prompt + carga de JSON, y ajustes.
 
