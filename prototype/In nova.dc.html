@@ -134,8 +134,18 @@ a{color:var(--color-accent);text-decoration:none}a:hover{color:var(--color-accen
 
           <div style="flex:1;min-height:0;padding:var(--space-4);border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:var(--space-3);overflow:hidden">
             <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 45%, transparent)">Transcripción en vivo</div>
-            <div style="flex:1;overflow-y:auto;font-size:14px;line-height:1.65;text-wrap:pretty;color:color-mix(in srgb, var(--color-text) 88%, transparent)">{{ transcript }}<span style="color:var(--color-accent)">{{ caret }}</span></div>
+            <div style="flex:1;overflow-y:auto;font-size:14px;line-height:1.65;text-wrap:pretty;color:color-mix(in srgb, var(--color-text) 88%, transparent)">{{ transcript }} <span style="color:color-mix(in srgb, var(--color-text) 45%, transparent)">{{ interim }}</span><span style="color:var(--color-accent)">{{ caret }}</span></div>
+            <sc-if value="{{ transcriptEmpty }}" hint-placeholder-val="{{ true }}">
+              <div style="font-size:13px;line-height:1.5;color:color-mix(in srgb, var(--color-text) 40%, transparent)">{{ transcriptHint }}</div>
+            </sc-if>
           </div>
+
+          <sc-if value="{{ hasMicError }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;gap:10px;margin-top:var(--space-3);padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);box-shadow:inset 0 0 0 1px var(--color-accent-700);background:color-mix(in srgb, var(--color-accent-900) 60%, transparent);animation:up .22s ease">
+              <i class="ph ph-warning-circle" style="font-size:15px;color:var(--color-accent);padding-top:2px;flex:none"></i>
+              <div style="flex:1;font-size:12px;line-height:1.5;color:var(--color-accent-300);text-wrap:pretty">{{ micError }}</div>
+            </div>
+          </sc-if>
 
           <div style="display:flex;align-items:center;gap:var(--space-4);padding-top:var(--space-6)">
             <div style="position:relative;width:70px;height:70px;flex:none">
@@ -534,8 +544,6 @@ a{color:var(--color-accent);text-decoration:none}a:hover{color:var(--color-accen
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1120,&quot;height&quot;:1040},&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;inicio&quot;,&quot;voz&quot;,&quot;escribir&quot;,&quot;procesando&quot;,&quot;proyecto&quot;,&quot;prompt&quot;,&quot;ajustes&quot;],&quot;default&quot;:&quot;inicio&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototipo&quot;},&quot;processingSpeedMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:250,&quot;max&quot;:1600,&quot;step&quot;:50,&quot;default&quot;:700,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Prototipo&quot;},&quot;showTimeline&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Informe&quot;}}">
 const EXAMPLE = "Se me ocurrió que en las estaciones de metro podrían haber casilleros refrigerados donde la gente recoja su pedido del supermercado al salir del trabajo, así no espera al repartidor en casa ni se corta la cadena de frío.";
-const WORDS = EXAMPLE.split(" ");
-
 const STEPS = [
   { label: "Transcribiendo el audio", icon: "ph-waveform" },
   { label: "Extrayendo la idea base", icon: "ph-lightbulb" },
@@ -623,7 +631,7 @@ const SEED = [
 class Component extends DCLogic {
   state = {
     screen: this.props.startScreen || "inicio",
-    recording: false, elapsed: 0, spoken: 0,
+    recording: false, elapsed: 0, heard: "", interim: "", micError: "",
     typed: "", kb: false,
     procStep: 0,
     projects: SEED, activeId: null,
@@ -637,7 +645,12 @@ class Component extends DCLogic {
   componentDidMount() { if (this.state.screen === "proyecto" && !this.state.activeId) this.setState({ projects: [NEW_PROJECT2(), ...SEED], activeId: "new" }); }
   componentWillUnmount() { this.stopTimers(); }
 
-  stopTimers() { clearInterval(this._rec); clearInterval(this._tick); clearInterval(this._proc); this._rec = null; this._tick = null; this._proc = null; }
+  stopTimers() { clearInterval(this._tick); clearInterval(this._proc); this._tick = null; this._proc = null; this.stopMic(); }
+
+  stopMic() {
+    this._wantRec = false;
+    if (this._sr) { try { this._sr.onend = null; this._sr.stop(); } catch (e) {} this._sr = null; }
+  }
 
   active() {
     const { projects, activeId } = this.state;
@@ -648,8 +661,7 @@ class Component extends DCLogic {
     const s = this.state;
     if (s.promptIdea) return s.promptIdea;
     if (s.typed.trim()) return s.typed.trim();
-    const spokenText = WORDS.slice(0, s.spoken).join(" ");
-    return spokenText || "[aquí va la idea que dictaste o escribiste]";
+    return s.heard.trim() || "[aquí va la idea que dictaste o escribiste]";
   }
 
   importJson = () => {
@@ -682,28 +694,76 @@ class Component extends DCLogic {
 
   go = (screen) => { this.stopTimers(); this.setState({ screen, kb: false, recording: false }); };
 
-  resetCapture = () => { this.stopTimers(); this.setState({ recording: false, elapsed: 0, spoken: 0 }); };
+  resetCapture = () => { this.stopTimers(); this.setState({ recording: false, elapsed: 0, heard: "", interim: "", micError: "" }); };
 
   startRec = () => {
-    if (this._rec) return;
-    this.setState({ recording: true });
-    this._tick = setInterval(() => this.setState(s => (s.recording ? { elapsed: s.elapsed + 0.1 } : null)), 100);
-    this._rec = setInterval(() => {
+    if (this._sr) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      this.setState({ micError: "Este navegador no permite dictado. Escribe la idea en su lugar.", recording: false });
+      return;
+    }
+    let sr;
+    try { sr = new SR(); } catch (e) {
+      this.setState({ micError: "No se pudo abrir el micrófono.", recording: false });
+      return;
+    }
+    sr.lang = "es-ES";
+    sr.continuous = true;
+    sr.interimResults = true;
+    sr.maxAlternatives = 1;
+
+    sr.onresult = (ev) => {
+      let interim = "", added = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) added += r[0].transcript; else interim += r[0].transcript;
+      }
       this.setState(s => {
-        const spoken = Math.min(WORDS.length, s.spoken + 2);
-        if (spoken >= WORDS.length) { this.stopTimers(); return { spoken, recording: false }; }
-        return { spoken };
+        const heard = added ? (s.heard ? s.heard + " " : "") + added.trim() : s.heard;
+        return { heard, interim: interim.trim() };
       });
-    }, 340);
+    };
+
+    sr.onerror = (ev) => {
+      if (ev.error === "no-speech" || ev.error === "aborted") return;
+      const msg = ev.error === "not-allowed" || ev.error === "service-not-allowed"
+        ? "Falta permiso del micrófono. Habilítalo en el navegador y vuelve a intentar."
+        : ev.error === "network"
+        ? "El dictado necesita conexión. Escribe la idea o reintenta con señal."
+        : "El dictado se interrumpió. Toca el micrófono para seguir.";
+      this.stopMic();
+      clearInterval(this._tick); this._tick = null;
+      this.setState({ recording: false, interim: "", micError: msg });
+    };
+
+    // Los navegadores cortan el reconocimiento cada pocos segundos: se reanuda
+    // mientras el usuario no haya puesto pausa.
+    sr.onend = () => {
+      if (!this._wantRec) return;
+      try { sr.start(); } catch (e) {}
+    };
+
+    this._sr = sr;
+    this._wantRec = true;
+    try { sr.start(); } catch (e) {
+      this.stopMic();
+      this.setState({ micError: "No se pudo iniciar el dictado.", recording: false });
+      return;
+    }
+    this.setState({ recording: true, micError: "" });
+    clearInterval(this._tick);
+    this._tick = setInterval(() => this.setState(s => (s.recording ? { elapsed: s.elapsed + 0.1 } : null)), 100);
   };
 
-  pauseRec = () => { this.stopTimers(); this.setState({ recording: false }); };
+  pauseRec = () => {
+    this.stopMic();
+    clearInterval(this._tick); this._tick = null;
+    this.setState(s => ({ recording: false, heard: s.interim ? (s.heard ? s.heard + " " : "") + s.interim : s.heard, interim: "" }));
+  };
 
   toggleRec = () => {
-    const s = this.state;
-    if (s.recording) { this.pauseRec(); return; }
-    if (s.spoken >= WORDS.length) { this.stopTimers(); this.setState({ elapsed: 0, spoken: 0 }, this.startRec); return; }
-    this.startRec();
+    if (this.state.recording) this.pauseRec(); else this.startRec();
   };
 
   startProcessing = () => {
@@ -728,7 +788,6 @@ class Component extends DCLogic {
     const p = this.active();
     const mm = String(Math.floor(s.elapsed / 60)).padStart(2, "0");
     const ss = String(Math.floor(s.elapsed % 60)).padStart(2, "0");
-    const transcript = WORDS.slice(0, s.spoken).join(" ");
     const accent = "#9184d9";
     const seg = (on) => (on ? "inset 0 0 0 1px var(--color-accent)" : "none");
     const segC = (on) => (on ? accent : "var(--color-text)");
@@ -738,9 +797,9 @@ class Component extends DCLogic {
       isProc: s.screen === "procesando", isProject: s.screen === "proyecto", isSettings: s.screen === "ajustes",
       kb: s.kb, openKb: () => this.setState({ kb: true }), closeKb: () => this.setState({ kb: false }),
       goHome: () => this.go("inicio"), goVoice: () => this.go("voz"), goWrite: () => this.go("escribir"),
-      goVoiceRec: () => { this.stopTimers(); this.setState({ screen: "voz", kb: false, recording: false, elapsed: 0, spoken: 0 }, this.startRec); },
+      goVoiceRec: () => { this.stopTimers(); this.setState({ screen: "voz", kb: false, recording: false, elapsed: 0, heard: "", interim: "", micError: "" }); },
       resetCapture: this.resetCapture,
-      hasVoice: s.spoken > 0,
+      hasVoice: s.heard.trim().length > 0,
 
       isPrompt: s.screen === "prompt",
       goPrompt: () => { this.stopTimers(); this.setState({ screen: "prompt", promptTab: "prompt", recording: false, kb: false, importError: "", copied: false, promptFrom: s.screen, promptIdea: "" }); },
@@ -783,14 +842,19 @@ class Component extends DCLogic {
       })),
 
       timer: mm + ":" + ss,
-      recLabel: s.recording ? "Grabando" : s.spoken >= WORDS.length ? "Dictado completo" : s.spoken ? "En pausa" : "Listo para grabar",
-      recIcon: s.recording ? "ph-pause" : s.spoken >= WORDS.length ? "ph-arrow-counter-clockwise" : "ph-microphone",
+      recLabel: s.recording ? "Grabando" : s.heard.trim() ? "En pausa · toca para seguir" : "Toca el micrófono para dictar",
+      recIcon: s.recording ? "ph-pause" : "ph-microphone",
       waveOpacity: s.recording ? 1 : 0.26,
       haloOpacity: s.recording ? 1 : 0.3,
       caret: s.recording ? " ▌" : "",
-      transcript: transcript || (s.recording ? "" : "La transcripción aparecerá aquí mientras hablas."),
+      transcript: s.heard,
+      interim: s.interim,
+      transcriptEmpty: !s.heard && !s.interim,
+      transcriptHint: s.recording ? "Escuchando…" : "La transcripción aparecerá aquí mientras hablas.",
+      micError: s.micError,
+      hasMicError: !!s.micError,
       toggleRec: this.toggleRec,
-      noVoice: s.spoken === 0,
+      noVoice: s.heard.trim().length === 0,
 
       typed: s.typed,
       onType: (e) => this.setState({ typed: e.target.value }),

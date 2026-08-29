@@ -36,7 +36,7 @@ Pantallas incluidas: inicio (lista de ideas), captura por voz con transcripción
 
 ## Flujo de la app
 
-1. **Capturar** — dictar la idea (transcripción en vivo) o escribirla.
+1. **Capturar** — dictar la idea (dictado real por micrófono, con transcripción en vivo) o escribirla.
 2. **Procesar** — de dos formas:
    - análisis interno de la app (requiere integrar un modelo de lenguaje);
    - **generador de prompt**: la app arma un prompt con la idea, la fecha, la moneda y el esquema JSON; el usuario lo lleva a una IA externa y pega el JSON de vuelta, que se carga como proyecto.
@@ -46,8 +46,7 @@ Pantallas incluidas: inicio (lista de ideas), captura por voz con transcripción
 
 Ver `docs/HANDOFF.md`. Stack recomendado: Kotlin + Jetpack Compose (Android nativo) o React Native.
 
-Pendientes funcionales que el prototipo no cubre:
-- speech-to-text real para la transcripción;
+El dictado usa la Web Speech API del navegador (Chrome en Android la soporta; requiere permiso de micrófono y conexión). Pendientes funcionales:
 - llamada a un modelo de lenguaje para el análisis interno;
 - persistencia de proyectos, carpetas y notas;
 - portapapeles y lectura de archivos JSON en el dispositivo.
