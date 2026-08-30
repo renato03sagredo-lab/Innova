@@ -1,6 +1,6 @@
 # Innovaia — In nova
 
-App para capturar ideas innovadoras en el momento en que surgen (por voz o por escrito), procesarlas y organizarlas como proyectos con viabilidad, costo, timing, público y análisis completo.
+App para capturar ideas innovadoras en el momento en que surgen, procesarlas y organizarlas como proyectos con viabilidad, costo, timing, público y análisis completo. La captura es por texto.
 
 Este repositorio contiene, por ahora, **el diseño y el prototipo navegable**. La app nativa todavía no está implementada.
 
@@ -32,11 +32,11 @@ Notas:
 
 **Fuente editable:** `prototype/In nova.dc.html` (versión con marco de teléfono, para revisar el diseño en escritorio; requiere los archivos vecinos `support.js`, `android-frame.jsx` y `_ds/`).
 
-Pantallas incluidas: inicio (lista de ideas), captura por voz con transcripción en vivo, captura escrita, procesamiento, ficha del proyecto (nombre editable, panel de métricas, secciones de análisis, cronograma, carpetas, preguntas abiertas), generador de prompt + carga de JSON, y ajustes.
+Pantallas incluidas: inicio (lista de ideas), captura escrita, procesamiento, ficha del proyecto (nombre editable, panel de métricas, secciones de análisis, cronograma, carpetas, preguntas abiertas), generador de prompt + carga de JSON, y ajustes.
 
 ## Flujo de la app
 
-1. **Capturar** — dictar la idea (dictado real por micrófono, con transcripción en vivo) o escribirla.
+1. **Capturar** — escribir la idea.
 2. **Procesar** — de dos formas:
    - análisis interno de la app (requiere integrar un modelo de lenguaje);
    - **generador de prompt**: la app arma un prompt con la idea, la fecha, la moneda y el esquema JSON; el usuario lo lleva a una IA externa y pega el JSON de vuelta, que se carga como proyecto.
@@ -46,12 +46,12 @@ Pantallas incluidas: inicio (lista de ideas), captura por voz con transcripción
 
 Ver `docs/HANDOFF.md`. Stack recomendado: Kotlin + Jetpack Compose (Android nativo) o React Native.
 
-El dictado usa la Web Speech API del navegador (Chrome en Android la soporta). Requiere **HTTPS** — funciona en GitHub Pages, no abriendo el archivo local — y permiso de micrófono. Si el servicio de dictado no responde, la app sigue grabando y el panel queda editable para escribir o corregir el texto.
-
 Pendientes funcionales:
 - llamada a un modelo de lenguaje para el análisis interno;
 - persistencia de proyectos, carpetas y notas;
 - portapapeles y lectura de archivos JSON en el dispositivo.
+
+La entrada por voz quedó fuera del alcance: la captura es solo por texto.
 
 ## Diseño
 
